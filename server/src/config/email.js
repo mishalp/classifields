@@ -9,10 +9,10 @@ const emailConfig = {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
-  // Connection timeout settings
-  connectionTimeout: parseInt(process.env.EMAIL_CONNECTION_TIMEOUT || '10000'), // 10 seconds
-  socketTimeout: parseInt(process.env.EMAIL_SOCKET_TIMEOUT || '10000'), // 10 seconds
-  greetingTimeout: parseInt(process.env.EMAIL_GREETING_TIMEOUT || '5000'), // 5 seconds
+  // Connection timeout settings (longer defaults for deployed servers)
+  connectionTimeout: parseInt(process.env.EMAIL_CONNECTION_TIMEOUT || '30000'), // 30 seconds (increased for deployed servers)
+  socketTimeout: parseInt(process.env.EMAIL_SOCKET_TIMEOUT || '30000'), // 30 seconds
+  greetingTimeout: parseInt(process.env.EMAIL_GREETING_TIMEOUT || '10000'), // 10 seconds
   // Connection pool settings
   pool: process.env.EMAIL_POOL === 'true', // Use connection pooling
   maxConnections: parseInt(process.env.EMAIL_MAX_CONNECTIONS || '5'),
@@ -25,7 +25,7 @@ const emailConfig = {
   // TLS options for better compatibility
   tls: {
     rejectUnauthorized: process.env.EMAIL_TLS_REJECT_UNAUTHORIZED !== 'false',
-    ciphers: 'SSLv3',
+    // Remove outdated cipher specification - let Node.js use secure defaults
   },
   // Debug mode (set EMAIL_DEBUG=true to enable)
   debug: process.env.EMAIL_DEBUG === 'true',
@@ -37,7 +37,23 @@ const transporter = nodemailer.createTransport(emailConfig);
 
 // Verify transporter configuration with better error handling
 const verifyEmailConnection = async () => {
+  // Skip verification if disabled via environment variable
+  if (process.env.SKIP_EMAIL_VERIFICATION === 'true') {
+    console.log('⚠️  Email verification skipped (SKIP_EMAIL_VERIFICATION=true)');
+    console.log('📧 Email will be attempted when needed, but connection is not verified');
+    return false;
+  }
+
+  // Check if email credentials are provided
+  if (!emailConfig.auth.user || !emailConfig.auth.pass) {
+    console.warn('⚠️  Email credentials not configured. Email functionality will be disabled.');
+    console.warn('   Set SMTP_USER and SMTP_PASS environment variables to enable email.');
+    return false;
+  }
+
   try {
+    console.log(`🔍 Verifying email connection to ${emailConfig.host}:${emailConfig.port}...`);
+    
     // Set a timeout for the verification
     const verifyPromise = new Promise((resolve, reject) => {
       transporter.verify((error, success) => {
@@ -69,14 +85,23 @@ const verifyEmailConnection = async () => {
       user: emailConfig.auth.user ? `${emailConfig.auth.user.substring(0, 3)}***` : 'not set',
     });
     
+    console.warn('⚠️  App will continue running, but email functionality may not work.');
+    console.warn('   Email sending will be attempted when needed, but may fail.');
+    
     // Provide helpful troubleshooting information
     if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
-      console.error('💡 Troubleshooting tips:');
+      console.error('\n💡 Troubleshooting tips:');
       console.error('   1. Check if the SMTP host and port are correct');
       console.error('   2. Verify firewall rules allow outbound connections on port', emailConfig.port);
-      console.error('   3. Check if your server can reach the SMTP server (try: telnet', emailConfig.host, emailConfig.port + ')');
-      console.error('   4. For Gmail, ensure "Less secure app access" is enabled or use App Password');
-      console.error('   5. Consider using port 465 with secure=true or port 587 with secure=false');
+      console.error('   3. Test connectivity: telnet', emailConfig.host, emailConfig.port);
+      console.error('   4. For Gmail: Use App Password (not regular password)');
+      console.error('   5. Try port 465 with EMAIL_SECURE=true');
+      console.error('   6. Consider alternative SMTP services:');
+      console.error('      - SendGrid (port 587)');
+      console.error('      - Mailgun (port 587)');
+      console.error('      - AWS SES (port 587)');
+      console.error('      - Mailtrap (for testing)');
+      console.error('\n   To skip verification on startup, set: SKIP_EMAIL_VERIFICATION=true');
     }
     
     // Don't throw error - allow app to continue but email won't work
@@ -85,9 +110,14 @@ const verifyEmailConnection = async () => {
 };
 
 // Verify connection on startup (non-blocking)
-verifyEmailConnection().catch(() => {
-  // Error already logged
-});
+// Only verify if credentials are provided and verification is not skipped
+if (emailConfig.auth.user && emailConfig.auth.pass && process.env.SKIP_EMAIL_VERIFICATION !== 'true') {
+  verifyEmailConnection().catch(() => {
+    // Error already logged
+  });
+} else if (!emailConfig.auth.user || !emailConfig.auth.pass) {
+  console.warn('⚠️  Email credentials not configured. Set SMTP_USER and SMTP_PASS to enable email.');
+}
 
 // Email templates
 const emailTemplates = {
