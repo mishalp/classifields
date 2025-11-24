@@ -1,0 +1,67 @@
+name: classifieds_marketplace
+description: A modern classifieds marketplace app with authentication
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  provider: ^6.1.1
+
+  # Networking
+  dio: ^5.4.0
+
+  # Local Storage
+  flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.2
+
+  # UI Components
+  cupertino_icons: ^1.0.2
+  google_fonts: ^6.1.0
+  flutter_svg: ^2.0.9
+  
+  # Location
+  geolocator: ^10.1.0
+  permission_handler: ^11.1.0
+  
+  # Utils
+  timeago: ^3.6.0
+  cached_network_image: ^3.3.1
+  smooth_page_indicator: ^1.1.0
+  
+  # Image Picking & Compression
+  image_picker: ^1.0.7
+  flutter_image_compress: ^2.1.0
+  http: ^1.2.0
+  http_parser: ^4.0.2
+  
+  # Real-time Chat
+  socket_io_client: ^2.0.3+1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/icons/
+
+  # fonts:
+  #   - family: Poppins
+  #     fonts:
+  #       - asset: fonts/Poppins-Regular.ttf
+  #       - asset: fonts/Poppins-Bold.ttf
+  #         weight: 700
+
