@@ -3,10 +3,10 @@ class ApiConstants {
   // For Android Emulator: http://10.0.2.2:5000/api
   // For iOS Simulator: http://localhost:5000/api
   // For Physical Device: http://YOUR_IP:5000/api (find with ipconfig/ifconfig)
-  static const String baseUrl = 'http://172.20.10.2:5000/api';
+  static const String baseUrl = 'http://159.89.173.8:5000/api';
   
   // Base URL without /api suffix (used for image URLs)
-  static const String baseUrlNoApi = 'http://172.20.10.2:5000';
+  static const String baseUrlNoApi = 'http://159.89.173.8:5000';
   
   // Auth Endpoints
   static const String signup = '/auth/signup';

@@ -1,23 +1,92 @@
 const nodemailer = require('nodemailer');
 
-// Create transporter
-const transporter = nodemailer.createTransport({
+// Get configuration from environment variables
+const emailConfig = {
   host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port:  parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.EMAIL_SECURE === 'true',
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
-});
+  // Connection timeout settings
+  connectionTimeout: parseInt(process.env.EMAIL_CONNECTION_TIMEOUT || '10000'), // 10 seconds
+  socketTimeout: parseInt(process.env.EMAIL_SOCKET_TIMEOUT || '10000'), // 10 seconds
+  greetingTimeout: parseInt(process.env.EMAIL_GREETING_TIMEOUT || '5000'), // 5 seconds
+  // Connection pool settings
+  pool: process.env.EMAIL_POOL === 'true', // Use connection pooling
+  maxConnections: parseInt(process.env.EMAIL_MAX_CONNECTIONS || '5'),
+  maxMessages: parseInt(process.env.EMAIL_MAX_MESSAGES || '100'),
+  // Retry settings
+  retry: {
+    attempts: parseInt(process.env.EMAIL_RETRY_ATTEMPTS || '3'),
+    delay: parseInt(process.env.EMAIL_RETRY_DELAY || '2000'), // 2 seconds
+  },
+  // TLS options for better compatibility
+  tls: {
+    rejectUnauthorized: process.env.EMAIL_TLS_REJECT_UNAUTHORIZED !== 'false',
+    ciphers: 'SSLv3',
+  },
+  // Debug mode (set EMAIL_DEBUG=true to enable)
+  debug: process.env.EMAIL_DEBUG === 'true',
+  logger: process.env.EMAIL_DEBUG === 'true',
+};
 
-// Verify transporter configuration
-transporter.verify((error, success) => {
-  if (error) {
-    console.log('❌ Email configuration error:', error);
-  } else {
+// Create transporter
+const transporter = nodemailer.createTransport(emailConfig);
+
+// Verify transporter configuration with better error handling
+const verifyEmailConnection = async () => {
+  try {
+    // Set a timeout for the verification
+    const verifyPromise = new Promise((resolve, reject) => {
+      transporter.verify((error, success) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(success);
+        }
+      });
+    });
+
+    // Add overall timeout
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Email verification timeout - server may be unreachable or firewall blocking connection'));
+      }, emailConfig.connectionTimeout + 5000);
+    });
+
+    await Promise.race([verifyPromise, timeoutPromise]);
     console.log('✅ Email server is ready to send messages');
+    console.log(`📧 SMTP Host: ${emailConfig.host}:${emailConfig.port}`);
+    return true;
+  } catch (error) {
+    console.error('❌ Email configuration error:', error.message);
+    console.error('📋 Connection details:', {
+      host: emailConfig.host,
+      port: emailConfig.port,
+      secure: emailConfig.secure,
+      user: emailConfig.auth.user ? `${emailConfig.auth.user.substring(0, 3)}***` : 'not set',
+    });
+    
+    // Provide helpful troubleshooting information
+    if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
+      console.error('💡 Troubleshooting tips:');
+      console.error('   1. Check if the SMTP host and port are correct');
+      console.error('   2. Verify firewall rules allow outbound connections on port', emailConfig.port);
+      console.error('   3. Check if your server can reach the SMTP server (try: telnet', emailConfig.host, emailConfig.port + ')');
+      console.error('   4. For Gmail, ensure "Less secure app access" is enabled or use App Password');
+      console.error('   5. Consider using port 465 with secure=true or port 587 with secure=false');
+    }
+    
+    // Don't throw error - allow app to continue but email won't work
+    return false;
   }
+};
+
+// Verify connection on startup (non-blocking)
+verifyEmailConnection().catch(() => {
+  // Error already logged
 });
 
 // Email templates
@@ -226,8 +295,8 @@ const emailTemplates = {
   `,
 };
 
-// Send email function
-const sendEmail = async ({ to, subject, html }) => {
+// Send email function with retry logic
+const sendEmail = async ({ to, subject, html }, retryCount = 0) => {
   try {
     const mailOptions = {
       from: process.env.EMAIL_FROM || 'noreply@classifieds.com',
@@ -236,14 +305,57 @@ const sendEmail = async ({ to, subject, html }) => {
       html,
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    // Add timeout wrapper for sendMail
+    const sendPromise = transporter.sendMail(mailOptions);
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Email send timeout after ${emailConfig.socketTimeout}ms`));
+      }, emailConfig.socketTimeout + 5000);
+    });
+
+    const info = await Promise.race([sendPromise, timeoutPromise]);
     console.log('✅ Email sent:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('❌ Error sending email:', error);
-    throw error;
+    const maxRetries = emailConfig.retry.attempts;
+    
+    // Retry on timeout or connection errors
+    if (
+      retryCount < maxRetries &&
+      (error.code === 'ETIMEDOUT' || 
+       error.code === 'ECONNRESET' || 
+       error.code === 'ECONNREFUSED' ||
+       error.message.includes('timeout'))
+    ) {
+      const delay = emailConfig.retry.delay * (retryCount + 1); // Exponential backoff
+      console.warn(`⚠️ Email send failed (attempt ${retryCount + 1}/${maxRetries}), retrying in ${delay}ms...`, error.message);
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return sendEmail({ to, subject, html }, retryCount + 1);
+    }
+
+    // Log detailed error information
+    console.error('❌ Error sending email:', {
+      error: error.message,
+      code: error.code,
+      command: error.command,
+      to,
+      subject,
+      attempts: retryCount + 1,
+    });
+
+    // Throw error for backward compatibility with existing try-catch blocks
+    const emailError = new Error(`Failed to send email: ${error.message}`);
+    emailError.code = error.code;
+    emailError.originalError = error;
+    throw emailError;
   }
 };
 
-module.exports = { sendEmail, emailTemplates };
+module.exports = { 
+  sendEmail, 
+  emailTemplates,
+  verifyEmailConnection,
+  transporter,
+};
 
