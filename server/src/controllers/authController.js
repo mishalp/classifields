@@ -40,36 +40,38 @@ const signup = async (req, res) => {
     // Create verification link
     const verificationLink = `${process.env.FRONTEND_URL}/api/auth/verify-email?token=${verificationToken}`;
 
+    console.log(verificationLink)
     // Send verification email
-    try {
-      await sendEmail({
-        to: user.email,
-        subject: 'Verify Your Email - Classifieds Marketplace',
-        html: emailTemplates.verification(user.name, verificationLink),
-      });
+    // try {
+    //   await sendEmail({
+    //     to: user.email,
+    //     subject: 'Verify Your Email - Classifieds Marketplace',
+    //     html: emailTemplates.verification(user.name, verificationLink),
+    //   });
+      
 
-      res.status(201).json({
-        success: true,
-        message: 'Registration successful! Please check your email to verify your account.',
-        data: {
-          user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            verified: user.verified,
-          },
-        },
-      });
-    } catch (emailError) {
-      // Delete user if email fails to send
-      await User.findByIdAndDelete(user._id);
-      console.error('Email sending error:', emailError);
+    //   res.status(201).json({
+    //     success: true,
+    //     message: 'Registration successful! Please check your email to verify your account.',
+    //     data: {
+    //       user: {
+    //         id: user._id,
+    //         name: user.name,
+    //         email: user.email,
+    //         verified: user.verified,
+    //       },
+    //     },
+    //   });
+    // } catch (emailError) {
+    //   // Delete user if email fails to send
+    //   await User.findByIdAndDelete(user._id);
+    //   console.error('Email sending error:', emailError);
 
-      return res.status(500).json({
-        success: false,
-        message: 'Error sending verification email. Please try again.',
-      });
-    }
+    //   return res.status(500).json({
+    //     success: false,
+    //     message: 'Error sending verification email. Please try again.',
+    //   });
+    // }
   } catch (error) {
     console.error('Signup error:', error);
     res.status(500).json({
